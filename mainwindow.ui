@@ -5695,7 +5695,7 @@ p, li { white-space: pre-wrap; }
            </rect>
           </property>
           <attribute name="label">
-           <string>UDP Connection</string>
+           <string>TCP Connection</string>
           </attribute>
           <layout class="QGridLayout" name="gridLayout_50">
            <item row="0" column="0">

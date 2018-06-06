@@ -172,7 +172,7 @@ bool MainWindow::eventFilter(QObject *object, QEvent *e)
 {
     Q_UNUSED(object);
 
-    if (!(mSerialPort->isOpen() || mPacketInterface->isUdpConnected()) || !ui->overrideKbBox->isChecked()) {
+    if (!(mSerialPort->isOpen() || mPacketInterface->isTcpConnected()) || !ui->overrideKbBox->isChecked()) {
         return false;
     }
 
@@ -656,7 +656,7 @@ void MainWindow::timerSlot()
     // Read FW version if needed
     static bool sendCanBefore = false;
     static int canIdBefore = 0;
-    if (mSerialPort->isOpen() || mPacketInterface->isUdpConnected()) {
+    if (mSerialPort->isOpen() || mPacketInterface->isTcpConnected()) {
         if (sendCanBefore != ui->canFwdBox->isChecked() ||
                 canIdBefore != ui->canIdBox->value()) {
             mFwVersionReceived = false;
@@ -688,7 +688,7 @@ void MainWindow::timerSlot()
             mStatusLabel->setStyleSheet(qApp->styleSheet());
         }
     } else {
-        if (mSerialPort->isOpen() || mPacketInterface->isUdpConnected()) {
+        if (mSerialPort->isOpen() || mPacketInterface->isTcpConnected()) {
             if (mPacketInterface->isLimitedMode()) {
                 mStatusLabel->setText("Connected, limited");
             } else {
@@ -2084,22 +2084,16 @@ void MainWindow::on_serialConnectButton_clicked()
     mSerialPort->setDataTerminalReady(false);
     QThread::msleep(100);
 
-    mPacketInterface->stopUdpConnection();
+    mPacketInterface->stopTcpConnection();
 }
 
 void MainWindow::on_udpConnectButton_clicked()
 {
-    QHostAddress ip;
-
-    if (ip.setAddress(ui->udpIpEdit->text().trimmed())) {
-        if (mSerialPort->isOpen()) {
-            mSerialPort->close();
-        }
-
-        mPacketInterface->startUdpConnection(ip, 27800);
-    } else {
-        showStatusInfo("Invalid IP address", false);
+    if (mSerialPort->isOpen()) {
+        mSerialPort->close();
     }
+
+    mPacketInterface->startTcpConnection(ui->udpIpEdit->text().trimmed(), 65102);
 }
 
 void MainWindow::on_disconnectButton_clicked()
@@ -2108,8 +2102,8 @@ void MainWindow::on_disconnectButton_clicked()
         mSerialPort->close();
     }
 
-    if (mPacketInterface->isUdpConnected()) {
-        mPacketInterface->stopUdpConnection();
+    if (mPacketInterface->isTcpConnected()) {
+        mPacketInterface->stopTcpConnection();
     }
 
     mFwVersionReceived = false;

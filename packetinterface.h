@@ -21,7 +21,7 @@
 #include <QObject>
 #include <QTimer>
 #include <QVector>
-#include <QUdpSocket>
+#include <QTcpSocket>
 #include "datatypes.h"
 
 class PacketInterface : public QObject
@@ -68,9 +68,10 @@ public:
     bool measureEncoder(double current);
     bool measureHallFoc(double current);
     void setSendCan(bool mSendCan, unsigned int id);
-    void startUdpConnection(QHostAddress ip, int port);
-    void stopUdpConnection();
-    bool isUdpConnected();
+    void startTcpConnection(QString ip, int port);
+    void stopTcpConnection();
+    bool isTcpConnected();
+    void connectTcp(QString server, int port);
     bool sendCustomAppData(QByteArray data);
     bool sendCustomAppData(unsigned char *data, unsigned int len);
     bool setChukData(chuck_data &data);
@@ -98,7 +99,10 @@ signals:
     
 public slots:
     void timerSlot();
-    void readPendingDatagrams();
+    void tcpInputConnected();
+    void tcpInputDisconnected();
+    void tcpInputDataAvailable();
+    void tcpInputError(QAbstractSocket::SocketError socketError);
 
 private:
     unsigned short crc16(const unsigned char *buf, unsigned int len);
@@ -111,9 +115,11 @@ private:
     bool mSendCan;
     unsigned int mCanId;
     bool mIsLimitedMode;
-    QUdpSocket *mUdpSocket;
-    QHostAddress mHostAddress;
-    int mUdpPort;
+
+    QTcpSocket *mTcpSocket;
+    bool mTcpConnected;
+    QString mLastTcpServer;
+    int mLastTcpPort;
 
     // FW upload state
     QByteArray mNewFirmware;

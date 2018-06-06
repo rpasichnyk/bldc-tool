@@ -18,6 +18,7 @@
 #include "packetinterface.h"
 #include "utility.h"
 #include <QDebug>
+#include <QHostAddress>
 #include <math.h>
 
 namespace {
@@ -83,13 +84,18 @@ PacketInterface::PacketInterface(QObject *parent) :
     mTimer->setInterval(10);
     mTimer->start();
 
-    mHostAddress = QHostAddress("0.0.0.0");
-    mUdpPort = 0;
-    mUdpSocket = new QUdpSocket(this);
-
-    connect(mUdpSocket, SIGNAL(readyRead()),
-            this, SLOT(readPendingDatagrams()));
     connect(mTimer, SIGNAL(timeout()), this, SLOT(timerSlot()));
+    mTcpSocket = new QTcpSocket(this);
+    mTcpConnected = false;
+    mLastTcpServer = "";
+    mLastTcpPort = 0;
+
+    connect(mTcpSocket, SIGNAL(readyRead()), this, SLOT(tcpInputDataAvailable()));
+    connect(mTcpSocket, SIGNAL(connected()), this, SLOT(tcpInputConnected()));
+    connect(mTcpSocket, SIGNAL(disconnected()),
+            this, SLOT(tcpInputDisconnected()));
+    connect(mTcpSocket, SIGNAL(error(QAbstractSocket::SocketError)),
+            this, SLOT(tcpInputError(QAbstractSocket::SocketError)));
 }
 
 PacketInterface::~PacketInterface()
@@ -204,21 +210,6 @@ void PacketInterface::timerSlot()
     }
 }
 
-void PacketInterface::readPendingDatagrams()
-{
-    while (mUdpSocket->hasPendingDatagrams()) {
-        QByteArray datagram;
-        datagram.resize(mUdpSocket->pendingDatagramSize());
-        QHostAddress sender;
-        quint16 senderPort;
-
-        mUdpSocket->readDatagram(datagram.data(), datagram.size(),
-                                &sender, &senderPort);
-
-        processPacket((unsigned char*)datagram.data(), datagram.length());
-    }
-}
-
 unsigned short PacketInterface::crc16(const unsigned char *buf, unsigned int len)
 {
     unsigned int i;
@@ -238,20 +229,6 @@ bool PacketInterface::sendPacket(const unsigned char *data, unsigned int len_pac
 
     static unsigned char buffer[mMaxBufferLen];
     unsigned int ind = 0;
-
-    // If the IP is valid, send the packet over UDP
-    if (QString::compare(mHostAddress.toString(), "0.0.0.0") != 0) {
-        if (mSendCan) {
-            buffer[ind++] = COMM_FORWARD_CAN;
-            buffer[ind++] = mCanId;
-        }
-
-        memcpy(buffer + ind, data, len_packet);
-        ind += len_packet;
-
-        mUdpSocket->writeDatagram(QByteArray::fromRawData((const char*)buffer, ind), mHostAddress, mUdpPort);
-        return true;
-    }
 
     int len_tot = len_packet;
 
@@ -287,7 +264,11 @@ bool PacketInterface::sendPacket(const unsigned char *data, unsigned int len_pac
 
     QByteArray sendData = QByteArray::fromRawData((char*)buffer, ind);
 
-    emit dataToSend(sendData);
+    if (mTcpConnected && mTcpSocket->isOpen()) {
+        mTcpSocket->write(sendData);
+    } else {
+        emit dataToSend(sendData);
+    }
 
     return true;
 }
@@ -1171,24 +1152,55 @@ void PacketInterface::setSendCan(bool sendCan, unsigned int id)
     mCanId = id;
 }
 
-void PacketInterface::startUdpConnection(QHostAddress ip, int port)
+void PacketInterface::startTcpConnection(QString ip, int port)
 {
-    mHostAddress = ip;
-    mUdpPort = port;
-    mUdpSocket->close();
-    mUdpSocket->bind(QHostAddress::Any, mUdpPort + 1);
+    mLastTcpServer = ip;
+    mLastTcpPort = port;
+
+    QHostAddress host;
+    host.setAddress(ip);
+
+    mTcpSocket->abort();
+    mTcpSocket->connectToHost(host, port);
 }
 
-void PacketInterface::stopUdpConnection()
+void PacketInterface::stopTcpConnection()
 {
-    mHostAddress = QHostAddress("0.0.0.0");
-    mUdpPort = 0;
-    mUdpSocket->close();
+    if (mTcpConnected) {
+        mTcpSocket->close();
+    }
 }
 
-bool PacketInterface::isUdpConnected()
+bool PacketInterface::isTcpConnected()
 {
-    return QString::compare(mHostAddress.toString(), "0.0.0.0") != 0;
+    return mTcpConnected;
+}
+
+
+void PacketInterface::tcpInputConnected()
+{
+    mTcpConnected = true;
+}
+
+void PacketInterface::tcpInputDisconnected()
+{
+    mTcpConnected = false;
+}
+
+void PacketInterface::tcpInputDataAvailable()
+{
+    while (mTcpSocket->bytesAvailable() > 0) {
+        auto data = mTcpSocket->readAll();
+        processData(data);
+    }
+}
+
+void PacketInterface::tcpInputError(QAbstractSocket::SocketError socketError)
+{
+    (void)socketError;
+
+    QString errorStr = mTcpSocket->errorString();
+    mTcpSocket->close();
 }
 
 bool PacketInterface::sendCustomAppData(QByteArray data)
